@@ -19,6 +19,8 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
+import android.support.v7.widget.LinearLayoutManager;
+import android.support.v7.widget.RecyclerView;
 import android.text.Editable;
 import android.text.InputFilter;
 import android.text.TextWatcher;
@@ -30,18 +32,18 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageButton;
-import android.widget.ListView;
+import android.widget.ImageView;
 import android.widget.ProgressBar;
+import android.widget.TextView;
 import android.widget.Toast;
 
+import com.bumptech.glide.Glide;
 import com.firebase.ui.auth.AuthUI;
+import com.firebase.ui.database.FirebaseRecyclerAdapter;
 import com.google.android.gms.tasks.OnCompleteListener;
 import com.google.android.gms.tasks.OnSuccessListener;
 import com.google.android.gms.tasks.Task;
 import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.database.ChildEventListener;
-import com.google.firebase.database.DataSnapshot;
-import com.google.firebase.database.DatabaseError;
 import com.google.firebase.database.DatabaseReference;
 import com.google.firebase.database.FirebaseDatabase;
 import com.google.firebase.remoteconfig.FirebaseRemoteConfig;
@@ -49,9 +51,7 @@ import com.google.firebase.storage.FirebaseStorage;
 import com.google.firebase.storage.StorageReference;
 import com.google.firebase.storage.UploadTask;
 
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 import java.util.logging.Logger;
 
 public class MainActivity extends AppCompatActivity {
@@ -63,8 +63,7 @@ public class MainActivity extends AppCompatActivity {
     public static final String ANONYMOUS = "anonymous";
     public static final int DEFAULT_MSG_LENGTH_LIMIT = 1000;
 
-    private ListView mMessageListView;
-    private MessageAdapter mMessageAdapter;
+    private RecyclerView mRecyclerView;
     private ProgressBar mProgressBar;
     private ImageButton mPhotoPickerButton;
     private EditText mMessageEditText;
@@ -73,7 +72,6 @@ public class MainActivity extends AppCompatActivity {
     private String mUsername;
     private FirebaseDatabase mDatabase;
     private DatabaseReference mDbRef;
-    private ChildEventListener mChildEventListener;
 
     private FirebaseAuth mAuth;
     private FirebaseAuth.AuthStateListener mAuthStateListener;
@@ -81,6 +79,36 @@ public class MainActivity extends AppCompatActivity {
     private FirebaseStorage mStorage;
     private StorageReference mStorageReference;
     private FirebaseRemoteConfig mFirebaseRemoteConfig;
+    private FirebaseRecyclerAdapter<FriendlyMessage, FriendlyMessageHolder> mAdapter;
+
+    public static class FriendlyMessageHolder extends RecyclerView.ViewHolder {
+        private final TextView mNameField;
+        private final TextView mMessageField;
+        private final ImageView mImageView;
+
+        public FriendlyMessageHolder(View itemView) {
+            super(itemView);
+            mNameField = (TextView) itemView.findViewById(R.id.nameTextView);
+            mMessageField = (TextView) itemView.findViewById(R.id.messageTextView);
+            mImageView = (ImageView) itemView.findViewById(R.id.photoImageView);
+        }
+
+        public void setName(String name) {
+            mNameField.setText(name);
+        }
+
+        public void setMessage(String message) {
+            mMessageField.setText(message);
+        }
+
+        public void setImage(String url) {
+            if (url == null || url.isEmpty()) return;
+
+            Glide.with(mImageView.getContext())
+                    .load(url)
+                    .into(mImageView);
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -100,15 +128,24 @@ public class MainActivity extends AppCompatActivity {
 
         // Initialize references to views
         mProgressBar = (ProgressBar) findViewById(R.id.progressBar);
-        mMessageListView = (ListView) findViewById(R.id.messageListView);
         mPhotoPickerButton = (ImageButton) findViewById(R.id.photoPickerButton);
         mMessageEditText = (EditText) findViewById(R.id.messageEditText);
         mSendButton = (Button) findViewById(R.id.sendButton);
-
-        // Initialize message ListView and its adapter
-        List<FriendlyMessage> friendlyMessages = new ArrayList<>();
-        mMessageAdapter = new MessageAdapter(this, R.layout.item_message, friendlyMessages);
-        mMessageListView.setAdapter(mMessageAdapter);
+        mRecyclerView = (RecyclerView) findViewById(R.id.recyclerView);
+        mRecyclerView.setLayoutManager(new LinearLayoutManager(this));
+        mAdapter = new FirebaseRecyclerAdapter<FriendlyMessage, FriendlyMessageHolder>(
+                FriendlyMessage.class,
+                R.layout.item_message,
+                FriendlyMessageHolder.class,
+                mDbRef) {
+            @Override
+            public void populateViewHolder(FriendlyMessageHolder holder, FriendlyMessage chat, int position) {
+                holder.setName(chat.getName());
+                holder.setMessage(chat.getText());
+                holder.setImage(chat.getPhotoUrl());
+            }
+        };
+        mRecyclerView.setAdapter(mAdapter);
 
         // Initialize progress bar
         mProgressBar.setVisibility(ProgressBar.INVISIBLE);
@@ -202,7 +239,6 @@ public class MainActivity extends AppCompatActivity {
 
     private void onSignedOut() {
         mUsername = ANONYMOUS;
-        detachMessagesListener();
         startActivityForResult(
                 AuthUI.getInstance()
                         .createSignInIntentBuilder()
@@ -213,48 +249,9 @@ public class MainActivity extends AppCompatActivity {
                 RC_SIGN_IN);
     }
 
-    private void detachMessagesListener() {
-        mMessageAdapter.clear();
-        if (mChildEventListener != null) {
-            mDbRef.removeEventListener(mChildEventListener);
-            mChildEventListener = null;
-        }
-    }
-
     private void onSignedIn(String email) {
         mUsername = email;
         Toast.makeText(MainActivity.this, "We're barbarians! " + mUsername, Toast.LENGTH_SHORT).show();
-
-        if (mChildEventListener == null) {
-            mChildEventListener = new ChildEventListener() {
-                @Override
-                public void onChildAdded(DataSnapshot dataSnapshot, String s) {
-                    FriendlyMessage newMessage = dataSnapshot.getValue(FriendlyMessage.class);
-                    mMessageAdapter.add(newMessage);
-                }
-
-                @Override
-                public void onChildChanged(DataSnapshot dataSnapshot, String s) {
-                    Logger.getLogger("firebase").info("child changed");
-                }
-
-                @Override
-                public void onChildRemoved(DataSnapshot dataSnapshot) {
-                    Logger.getLogger("firebase").info("child removed");
-                }
-
-                @Override
-                public void onChildMoved(DataSnapshot dataSnapshot, String s) {
-                    Logger.getLogger("firebase").info("child moved");
-                }
-
-                @Override
-                public void onCancelled(DatabaseError databaseError) {
-                    Logger.getLogger("firebase").info("child cancelled");
-                }
-            };
-            mDbRef.addChildEventListener(mChildEventListener);
-        }
     }
 
     @Override
@@ -281,7 +278,6 @@ public class MainActivity extends AppCompatActivity {
         if (mAuthStateListener != null) {
             mAuth.removeAuthStateListener(mAuthStateListener);
         }
-        detachMessagesListener();
     }
 
     @Override
@@ -317,5 +313,11 @@ public class MainActivity extends AppCompatActivity {
                     break;
                 }
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        mAdapter.cleanup();
     }
 }
