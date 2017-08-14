@@ -14,19 +14,7 @@
         android:id="@+id/recyclerView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        />
-
-    <!--
-    <ListView
-        android:id="@+id/messageListView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_above="@+id/linearLayout"
-        android:stackFromBottom="true"
-        android:divider="@android:color/transparent"
-        android:transcriptMode="alwaysScroll"
-        tools:listitem="@layout/item_message"/>
-        -->
+        android:layout_above="@+id/linearLayout" />
 
     <LinearLayout
         android:id="@+id/linearLayout"
